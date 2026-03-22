@@ -17,6 +17,7 @@ use ark_ec::short_weierstrass::{Projective, SWCurveConfig};
 use ark_ec::pairing::Pairing;
 use ark_ff::fields::fp6_2over3::Fp6Config;
 use ark_ff::{BitIteratorBE, Field, One, Zero};
+use ark_ff::biginteger::arithmetic::find_naf;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::fields::fp3::Fp3Var;
 use ark_r1cs_std::fields::fp6_2over3::Fp6Var;
@@ -434,21 +435,66 @@ fn final_exponentiation_easy_part<P: BW6Config>(
     Ok(&g_p * &g)
 }
 
-/// Cyclotomic exponentiation: f^exp using square-and-multiply in the cyclotomic subgroup.
+/// Cyclotomic squaring for Fp6 = Fp3² in the cyclotomic subgroup.
+///
+/// For f = (c0, c1) in the cyclotomic subgroup (where f * conjugate(f) = 1,
+/// i.e., c0² - NR*c1² = 1), the square is:
+///   f² = (1 + 2*NR*c1², 2*c0*c1)
+///
+/// This uses 1 Fp3 squaring (5 Fp constraints) + 1 Fp3 multiplication
+/// (6 Fp constraints) = 11 Fp constraints, compared to 12 for generic
+/// complex squaring.
+fn cyclotomic_square<P: BW6Config>(
+    f: &Fp6G<P>,
+) -> Result<Fp6G<P>, SynthesisError> {
+    // NR is the Fp3 nonresidue used to build Fp6 = Fp3[w]/(w² - NR)
+    let nr = <<P as BW6Config>::Fp6Config as Fp6Config>::NONRESIDUE;
+
+    // c1² in Fp3 (5 Fp constraints via CH-SQR2)
+    let c1_sq = f.c1.square()?;
+
+    // NR * c1² (0 constraints, constant scaling/permutation in Fp3)
+    let nr_c1_sq = &c1_sq * nr;
+
+    // new_c0 = 1 + 2 * NR * c1² (0 constraints, linear ops)
+    let new_c0 = nr_c1_sq.double()? + Fp3G::<P>::one();
+
+    // c0 * c1 in Fp3 (6 Fp constraints via Karatsuba)
+    let c0_c1 = &f.c0 * &f.c1;
+
+    // new_c1 = 2 * c0 * c1 (0 constraints, linear)
+    let new_c1 = c0_c1.double()?;
+
+    Ok(Fp6G::<P>::new(new_c0, new_c1))
+}
+
+/// Cyclotomic exponentiation: f^exp using NAF square-and-multiply in the
+/// cyclotomic subgroup.
+///
+/// Uses NAF (non-adjacent form) to minimize multiplications and
+/// `cyclotomic_square` for cheaper squarings (11 vs 12 Fp constraints each).
 fn cyclotomic_exp<P: BW6Config>(
     f: &Fp6G<P>,
     exp: &[u64],
 ) -> Result<Fp6G<P>, SynthesisError> {
     let mut result = Fp6G::<P>::one();
-    let mut found_one = false;
+    let self_inverse = f.unitary_inverse()?;
 
-    for bit in BitIteratorBE::without_leading_zeros(exp) {
-        if found_one {
-            result = result.square()?;
+    let mut found_nonzero = false;
+    let naf = find_naf(exp);
+
+    for &value in naf.iter().rev() {
+        if found_nonzero {
+            result = cyclotomic_square::<P>(&result)?;
         }
-        if bit {
-            found_one = true;
-            result = &result * f;
+
+        if value != 0 {
+            found_nonzero = true;
+            if value > 0 {
+                result = &result * f;
+            } else {
+                result = &result * &self_inverse;
+            }
         }
     }
     Ok(result)
@@ -504,7 +550,7 @@ fn final_exponentiation_hard_part<P: BW6Config>(
         // B = A^(u+1) * m
         let b = &exp_by_x_plus_1::<P>(&a)? * f;
         // A = A^2 * A
-        let a = &a.square()? * &a;
+        let a = &cyclotomic_square::<P>(&a)? * &a;
         // A = A.conjugate()
         let a = a.unitary_inverse()?;
         // C = B^((u-1)/3)
@@ -526,7 +572,7 @@ fn final_exponentiation_hard_part<P: BW6Config>(
         // H = F^d1 * E
         let h = &cyclotomic_exp_signed::<P>(&f_val, &[d1.unsigned_abs() as u64], d1 < 0)? * &e;
         // H = H^2 * H * B * G^d2
-        let h = &(&(&h.square()? * &h) * &b) * &cyclotomic_exp::<P>(&g, &[d2])?;
+        let h = &(&(&cyclotomic_square::<P>(&h)? * &h) * &b) * &cyclotomic_exp::<P>(&g, &[d2])?;
         // return A * H
         Ok(&a * &h)
     } else {
@@ -535,7 +581,7 @@ fn final_exponentiation_hard_part<P: BW6Config>(
         let a = exp_by_x_minus_1::<P>(&a)?;
         let a = &a * &f.frobenius_map(1)?;
         let b = &exp_by_x_plus_1::<P>(&a)? * &f.unitary_inverse()?;
-        let a = &a.square()? * &a;
+        let a = &cyclotomic_square::<P>(&a)? * &a;
         let c = exp_by_x_minus_1_div_3::<P>(&b)?;
         let d = exp_by_x_minus_1::<P>(&c)?;
         let e = &exp_by_x_minus_1::<P>(&exp_by_x_minus_1::<P>(&d)?)? * &d;
@@ -548,7 +594,7 @@ fn final_exponentiation_hard_part<P: BW6Config>(
         let d2 = ((P::H_T * P::H_T + 3 * P::H_Y * P::H_Y) / 4) as u64;
         let d1 = (P::H_T + P::H_Y) / 2;
         let j = &cyclotomic_exp_signed::<P>(&h, &[d1.unsigned_abs() as u64], d1 < 0)? * &e;
-        let k = &(&(&j.square()? * &j) * &b) * &cyclotomic_exp::<P>(&i, &[d2])?;
+        let k = &(&(&cyclotomic_square::<P>(&j)? * &j) * &b) * &cyclotomic_exp::<P>(&i, &[d2])?;
         Ok(&a * &k)
     }
 }

@@ -7,4 +7,5 @@
 //! of BW6-767 APK proofs inside a BN254 Groth16 proof.
 
 pub mod pairing;
+pub mod nonnative;
 mod bench_nonnative;
