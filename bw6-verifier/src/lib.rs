@@ -8,4 +8,5 @@
 
 pub mod pairing;
 pub mod nonnative;
+pub mod nonnative_pairing;
 mod bench_nonnative;
