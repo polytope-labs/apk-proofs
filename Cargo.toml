@@ -2,5 +2,6 @@
 
 members = [
     "bw6",
+    "bw6-verifier",
     "mipp",
 ]
