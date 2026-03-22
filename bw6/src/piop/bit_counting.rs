@@ -1,6 +1,6 @@
 // use ark_bw6_761::Fr;
 use ark_ff::{FftField, Field, PrimeField, Zero};
-use ark_poly::{Evaluations, Polynomial};
+use ark_poly::{EvaluationDomain, Evaluations, Polynomial};
 use ark_poly::univariate::DensePolynomial;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::iter::once;
@@ -28,21 +28,21 @@ use crate::domains::Domains;
 // To check this constraint holds, the verifier doesn't need to check C(Z) = Q(Z)(Z^n - 1), it could just check C(zeta) = 0,
 // But we use the former check not to handle this case differently.
 
-pub(crate) struct BitCountingRegisters<F: PrimeField> {
-    domains: Domains<F>,
+pub(crate) struct BitCountingRegisters<F: PrimeField, D: EvaluationDomain<F> = ark_poly::Radix2EvaluationDomain<F>> {
+    domains: Domains<F, D>,
     bitmask: Vec<F>,
     partial_counts: DensePolynomial<F>,
 }
 
-impl<F: PrimeField> BitCountingRegisters<F> {
-    pub fn new(domains: Domains<F>, bitmask: &Bitmask) -> Self {
+impl<F: PrimeField, D: EvaluationDomain<F>> BitCountingRegisters<F, D> {
+    pub fn new(domains: Domains<F, D>, bitmask: &Bitmask) -> Self {
         let mut bitmask = bitmask.to_bits_as_field_elements();
         bitmask.resize_with(domains.size, || F::zero());
         let partial_counts = Self::build_partial_counts_register(&bitmask);
         Self::new_unchecked(domains, bitmask, partial_counts)
     }
 
-    fn new_unchecked(domains: Domains<F>,
+    fn new_unchecked(domains: Domains<F, D>,
                      bitmask: Vec<F>,
                      partial_counts: Vec<F>,
     ) -> Self {
@@ -101,7 +101,7 @@ struct BitmaskEndsWithZero {}
 impl BitmaskEndsWithZero {
 
     // C = b * L_{n-1}
-    fn constraint_poly<F: PrimeField>(registers: &BitCountingRegisters<F>) -> DensePolynomial<F> {
+    fn constraint_poly<F: PrimeField, D: EvaluationDomain<F>>(registers: &BitCountingRegisters<F, D>) -> DensePolynomial<F> {
         let n = registers.domains.size;
         let mut ln = vec![F::zero(); n];
         ln[n-1] = F::one();
@@ -135,7 +135,7 @@ impl BitCount {
     }
 
     // Though the constraint is zero, the verifier still needs the opening of the register in zeta * omega.
-    fn linearization<F: PrimeField>(registers: &BitCountingRegisters<F>) -> DensePolynomial<F> {
+    fn linearization<F: PrimeField, D: EvaluationDomain<F>>(registers: &BitCountingRegisters<F, D>) -> DensePolynomial<F> {
         registers.get_partial_counts_polynomial()
     }
 

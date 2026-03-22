@@ -188,7 +188,7 @@ pub struct AffineAdditionRegisters<F: FftField, D: EvaluationDomain<F> = ark_pol
 
 impl<F: FftField, D: EvaluationDomain<F>> AffineAdditionRegisters<F, D> {
     pub fn new<IC, OC>(domains: Domains<F, D>,
-               keyset: Keyset<IC, OC>,
+               keyset: Keyset<IC, OC, D>,
                bitmask: &[bool],
     ) -> Self
 where
@@ -240,7 +240,7 @@ where
 
     fn new_unchecked<IC, OC>(domains: Domains<F, D>,
                      bitmask: Vec<F>,
-                     keyset: Keyset<IC, OC>,
+                     keyset: Keyset<IC, OC, D>,
                      apk_acc: [Vec<F>; 2],
     ) -> Self
 where
@@ -534,7 +534,7 @@ mod tests {
 
         let good_bitmask = _random_bits(m, 0.5, rng);
         let pks: Vec<InnerCurve> = random_pks::<_, InnerCurve>(m, rng);
-        let mut keyset = Keyset::<InnerCurve, OuterCurve>::new(pks);
+        let mut keyset = Keyset::<InnerCurve, OuterCurve, Radix2EvaluationDomain<Fr>>::new(pks);
         keyset.amplify();
         let registers = AffineAdditionRegisters::new(
             domains.clone(),
@@ -574,7 +574,7 @@ mod tests {
         let m = n - 1;
         let domains = Domains::<Fr, Radix2EvaluationDomain<Fr>>::new(n);
 
-        let mut keyset = Keyset::<InnerCurve, OuterCurve>::new(random_pks(m, rng));
+        let mut keyset = Keyset::<InnerCurve, OuterCurve, Radix2EvaluationDomain<Fr>>::new(random_pks(m, rng));
         keyset.amplify();
         let registers = AffineAdditionRegisters::new(
             domains.clone(),
@@ -600,7 +600,7 @@ mod tests {
 
         let bits = _random_bits(m, 0.5, rng);
 
-        let mut keyset = Keyset::<InnerCurve, OuterCurve>::new(random_pks(m, rng));
+        let mut keyset = Keyset::<InnerCurve, OuterCurve, Radix2EvaluationDomain<Fr>>::new(random_pks(m, rng));
         keyset.amplify();
         let registers = AffineAdditionRegisters::new(
             domains.clone(),

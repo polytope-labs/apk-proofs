@@ -1,6 +1,6 @@
 use ark_ec::CurveGroup;
 use ark_ff::FftField;
-use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
+use ark_poly::EvaluationDomain;
 use ark_std::{end_timer, start_timer};
 use w3f_pcs::aggregation::single::aggregate_claims_multiexp;
 use w3f_pcs::pcs::{PcsParams, RawVerifierKey, PCS};
@@ -24,27 +24,29 @@ pub struct Challenges<F: FftField> {
     pub nus: Vec<F>,
 }
 
-pub struct Verifier<IC, OC, S>
+pub struct Verifier<IC, OC, S, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField> + FftField,
     S: PCS<OC::ScalarField>,
+    D: EvaluationDomain<OC::ScalarField>,
 {
-    domain: Radix2EvaluationDomain<OC::ScalarField>,
+    domain: D,
     verifier_key: <S::Params as PcsParams>::RVK,
     pks_comm: KeysetCommitment<OC::ScalarField, S::C>,
     preprocessed_transcript: Transcript,
     _marker: std::marker::PhantomData<(IC, S)>,
 }
 
-impl<IC, OC, S> Verifier<IC, OC, S> 
+impl<IC, OC, S, D> Verifier<IC, OC, S, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField> + FftField,
     S: PCS<OC::ScalarField>,
     S::C: CommitmentExt<OC::ScalarField, Affine = OC::Affine> + Clone,
+    D: EvaluationDomain<OC::ScalarField>,
 {
     pub fn new(
         verifier_key: <S::Params as PcsParams>::RVK,
@@ -52,7 +54,7 @@ where
         mut empty_transcript: Transcript,
     ) -> Self {
         let domain_size = 2usize.pow(pks_comm.log_domain_size);
-        let domain = Radix2EvaluationDomain::<OC::ScalarField>::new(domain_size)
+        let domain = D::new(domain_size)
             .expect("Failed to create evaluation domain");
         assert_eq!(domain.size(), domain_size);
 
@@ -130,7 +132,7 @@ where
             &evals_at_zeta, 
             challenges.r, 
             &public_input.bitmask, 
-            self.domain.size as u64
+            self.domain.size() as u64
         );
         let w = utils::horner_field(&constraint_polynomial_evals, challenges.phi);
         proof.r_zeta_omega + w == proof.q_zeta * evals_at_zeta.vanishing_polynomial
