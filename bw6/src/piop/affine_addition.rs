@@ -367,7 +367,10 @@ where
         let [x1, y1] = &registers.partial_sums;
         let [x2, y2] = &registers.keyset;
         let mut next_partial_sums = registers.partial_sums.clone();
-        next_partial_sums.iter_mut().for_each(|z| z.evals.rotate_left(4));
+        // Shift by domain4x_size / domain_size to get f(ω·x) from f(x) evaluations
+        // over the 4x domain. For Radix2 this is 4, for smooth domains it varies.
+        let shift = registers.domains.domain4x.size() / registers.domains.size;
+        next_partial_sums.iter_mut().for_each(|z| z.evals.rotate_left(shift));
         let [x3, y3] = &next_partial_sums;
 
         let c1 =
@@ -460,7 +463,10 @@ where
     (DensePolynomial<OC::ScalarField>, DensePolynomial<OC::ScalarField>) {
         let [x1, y1] = &registers.partial_sums;
         let [h_x, h_y] = [x1, y1].map(|z| z[0]);
-        let [apk_plus_h_x, apk_plus_h_y] = [x1, y1].map(|z| z[4 * (registers.domains.size - 1)]);
+        // Access the 4x evaluation at the last base-domain point.
+        // For a domain4x that is `ratio` times the base domain, index = ratio * (n-1).
+        let ratio = registers.domains.domain4x.size() / registers.domains.size;
+        let [apk_plus_h_x, apk_plus_h_y] = [x1, y1].map(|z| z[ratio * (registers.domains.size - 1)]);
 
         let acc_minus_h_x = x1 - &registers.domains.constant_4x(h_x);
         let acc_minus_h_y = y1 - &registers.domains.constant_4x(h_y);

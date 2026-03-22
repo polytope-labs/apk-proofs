@@ -42,8 +42,9 @@ where
 {
     /// Per-coordinate commitments to public key polynomials
     pub pks_comm: (C, C),
-    /// Log₂ of the domain size used to interpolate the vectors above.
-    pub log_domain_size: u32,
+    /// The domain size used to interpolate the vectors above.
+    /// May be a power of 2 (Radix2) or a smooth-order size (SmoothSubgroup).
+    pub domain_size: u32,
     _m: PhantomData<F>,
 }
 
@@ -130,7 +131,7 @@ where
         let pks_y_comm = S::commit(kzg_pk, &self.pks_polys[1]).expect("Commitment to pks_y_poly failed");
         KeysetCommitment {
             pks_comm: (pks_x_comm, pks_y_comm),
-            log_domain_size: self.domain.log_size_of_group() as u32,
+            domain_size: self.domain.size() as u32,
             _m: PhantomData::default(),
         }
     }
