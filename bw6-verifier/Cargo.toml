@@ -11,6 +11,8 @@ ark-ec = { version = "0.5", default-features = false }
 ark-r1cs-std = { version = "0.5", default-features = false }
 ark-relations = { version = "0.5", default-features = false }
 ark-serialize = { version = "0.5", default-features = false }
+ark-snark = { version = "0.5", default-features = false }
+ark-poly = { version = "0.5", default-features = false }
 
 ark-bw6-767 = { version = "0.5", default-features = false }
 ark-bls12-381 = { version = "0.5", default-features = false, features = ["curve"] }
@@ -19,6 +21,9 @@ ark-groth16 = { version = "0.5", default-features = false }
 
 [dev-dependencies]
 ark-std = { version = "0.5", features = ["std"] }
+apk-proofs = { path = "../bw6" }
+w3f-pcs = { git = "https://github.com/polytope-labs/fflonk", branch = "fix/remove-two-adicity-check" }
+merlin = "3.0"
 
 [features]
 default = ["std"]
