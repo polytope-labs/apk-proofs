@@ -17,11 +17,8 @@ pub fn barycentric_eval_at<F: FftField, D: EvaluationDomain<F>>(z: F, evals: &Ve
     let n = domain.size();
     assert_eq!(evals.len(), n);
     // let timer_z_n =  std::time::Instant::now();
-    let mut z_n = z; // z^n, n=2^d - domain size, so squarings only
-    for _ in 0..domain.log_size_of_group() {
-        z_n.square_in_place();
-    }
-    // println!("{}μs z^n for log_n={}", timer_z_n.elapsed().as_micros(), domain.log_size_of_group());
+    // z^n where n is the domain size
+    let mut z_n = z.pow([n as u64]);
     z_n -= F::one();
     z_n *= &domain.size_inv(); // (z^n-1)/n
 
@@ -37,12 +34,8 @@ pub fn barycentric_eval_at<F: FftField, D: EvaluationDomain<F>>(z: F, evals: &Ve
 }
 
 pub fn barycentric_eval_binary_at<F: FftField, D: EvaluationDomain<F>>(z: F, evals: &Bitmask, domain: D) -> F {
-    // let timer_z_n =  std::time::Instant::now();
-    let mut z_n = z; // z^n, n=2^d - domain size, so squarings only
-    for _ in 0..domain.log_size_of_group() {
-        z_n.square_in_place();
-    }
-    // println!("{}μs z^n for log_n={}", timer_z_n.elapsed().as_micros(), domain.log_size_of_group());
+    // z^n where n is the domain size
+    let mut z_n = z.pow([domain.size() as u64]);
     z_n -= F::one();
     z_n *= &domain.size_inv(); // (z^n-1)/n
 
@@ -71,11 +64,8 @@ pub struct LagrangeEvaluations<F: FftField> {
 
 //TODO: move to domains
 pub fn lagrange_evaluations<F: FftField, D: EvaluationDomain<F>>(z: F, domain: D) -> LagrangeEvaluations<F> {
-    // TODO: reuse this code with barycentric_eval methods
-    let mut z_n = z; // z^n, n=2^d - domain size, so squarings only
-    for _ in 0..domain.log_size_of_group() {
-        z_n.square_in_place();
-    }
+    // z^n where n is the domain size
+    let z_n = z.pow([domain.size() as u64]);
 
     let z_n_minus_one = z_n - F::one();
     let z_n_minus_one_div_n = z_n_minus_one * domain.size_inv();

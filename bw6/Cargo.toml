@@ -19,7 +19,7 @@ ark-bw6-767 = { version = "0.5", default-features = false }
 ark-bls12-377 = { version = "0.5", default-features = false, features = ["curve"] }
 ark-bls12-381 = { version = "0.5", default-features = false, features = ["curve"] }
 
-w3f-pcs = { git = "https://github.com/w3f/fflonk" }
+w3f-pcs = { git = "https://github.com/polytope-labs/fflonk", branch = "fix/remove-two-adicity-check" }
 
 rand = "0.8"
 merlin = "3.0"

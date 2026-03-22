@@ -24,11 +24,22 @@ pub struct Domains<F: FftField, D: EvaluationDomain<F> = Radix2EvaluationDomain<
 impl<F: FftField, D: EvaluationDomain<F>> Domains<F, D> {
     pub fn new(domain_size: usize) -> Self {
         let domain = D::new(domain_size).unwrap();
-        let domain2x = D::new(2 * domain_size).unwrap();
-        let domain4x = D::new(4 * domain_size).unwrap();
+        let n = domain.size();
 
-        let l_first = Self::first_lagrange_basis_polynomial(domain_size);
-        let l_last = Self::last_lagrange_basis_polynomial(domain_size);
+        // Find 2x and 4x domains that contain the base domain as a subgroup.
+        // For Radix2, D::new(2*n) naturally gives 2n (a multiple of n).
+        // For SmoothSubgroup, D::new(2*n) might give a size that's NOT a multiple of n.
+        // We need domain sizes that are multiples of n AND >= 2n, 4n respectively.
+        let domain2x = Self::find_multiple_domain(n, 2).unwrap();
+        let domain4x = Self::find_multiple_domain(n, 4).unwrap();
+
+        eprintln!("Domains::new: base={}, 2x={} ({}x), 4x={} ({}x)",
+            n, domain2x.size(), domain2x.size() / n,
+            domain4x.size(), domain4x.size() / n);
+
+        assert_eq!(n, domain_size, "domain_size mismatch");
+        let l_first = Self::first_lagrange_basis_polynomial(n);
+        let l_last = Self::last_lagrange_basis_polynomial(n);
         let l_first_evals_over_4x = Self::_amplify(l_first, domain, domain4x);
         let l_last_evals_over_4x = Self::_amplify(l_last, domain, domain4x);
 
@@ -42,6 +53,22 @@ impl<F: FftField, D: EvaluationDomain<F>> Domains<F, D> {
             omega_inv: domain.group_gen_inv(),
             size: domain.size(),
         }
+    }
+
+    /// Find a domain whose size is a multiple of `base_size` and at least `multiplier * base_size`.
+    /// This ensures the base domain is a subgroup of the larger domain.
+    fn find_multiple_domain(base_size: usize, multiplier: usize) -> Option<D> {
+        let min_size = base_size * multiplier;
+        // Try successive multiples of base_size until we find one that's a valid domain size
+        for k in multiplier..=multiplier * 100 {
+            let candidate = base_size * k;
+            if let Some(d) = D::new(candidate) {
+                if d.size() % base_size == 0 && d.size() >= min_size {
+                    return Some(d);
+                }
+            }
+        }
+        None
     }
 
     /// Interpolates the evaluations over the smaller domain,
