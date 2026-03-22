@@ -96,19 +96,20 @@ impl<G: AffineRepr> RegisterPolynomials<G> for () {
 //    verifier is given the "linearization" polynomial that is enough to be queried once.
 //    It is efficient if the constraint polynomial is linear in all "shifted" terms ri(Zw).
 
-pub trait ProverProtocol<IC, OC, S> 
+pub trait ProverProtocol<IC, OC, S, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField>,
     S: PCS<OC::ScalarField>,
+    D: EvaluationDomain<OC::ScalarField>,
 {
     type P1: RegisterPolynomials<OC::Affine>;
     type P2: RegisterPolynomials<OC::Affine>;
     type E: RegisterEvaluations<OC::ScalarField>;
     type PI: PublicInput<IC>;
 
-    fn init(domains: Domains<OC::ScalarField>, bitmask: Bitmask, keyset: Keyset<IC, OC>) -> Self;
+    fn init(domains: Domains<OC::ScalarField, D>, bitmask: Bitmask, keyset: Keyset<IC, OC, D>) -> Self;
 
     // These 2 methods together return register polynomials the prover should commit to.
     // The 2nd one is used only in the "packed" scheme as it requires an additional challenge
@@ -125,7 +126,7 @@ where
     fn compute_constraint_polynomials(&self) -> Vec<DensePolynomial<OC::ScalarField>>;
 
     //TODO: remove domains param
-    fn compute_quotient_polynomial<D: EvaluationDomain<OC::ScalarField>>(&self, phi: OC::ScalarField, domain: D) -> DensePolynomial<OC::ScalarField> {
+    fn compute_quotient_polynomial<D2: EvaluationDomain<OC::ScalarField>>(&self, phi: OC::ScalarField, domain: D2) -> DensePolynomial<OC::ScalarField> {
         let w = utils::randomize(phi, &self.compute_constraint_polynomials());
         let (q_poly, r) = w.divide_by_vanishing_poly(domain);
         assert_eq!(r, DensePolynomial::zero());

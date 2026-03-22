@@ -70,7 +70,7 @@ pub type OuterScalar = Fr;
 /// Keyset for BLS12-377 public keys with BW6-761 operations
 /// 
 /// This type is independent of the polynomial commitment scheme used.
-pub type KeysetBls12_377Bw6_761 = Keyset<InnerCurve, OuterCurve>;
+pub type KeysetBls12_377Bw6_761 = Keyset<InnerCurve, OuterCurve, DomainType>;
 
 /// Accountable public input for simple and packed proof schemes
 /// 

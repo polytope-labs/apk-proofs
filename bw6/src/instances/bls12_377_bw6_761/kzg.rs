@@ -38,10 +38,10 @@ pub type CommitmentKzgBw6_761 = KzgCommitment<BW6_761>;
 pub type KeysetCommitmentKzgBw6_761 = KeysetCommitment<OuterScalar, CommitmentKzgBw6_761>;
 
 /// Prover for BLS12-377 + BW6-761 with KZG commitments
-pub type ProverBls12_377Bw6_761Kzg = Prover<InnerCurve, OuterCurve, PcsKzgBw6_761>;
+pub type ProverBls12_377Bw6_761Kzg = Prover<InnerCurve, OuterCurve, PcsKzgBw6_761, DomainType>;
 
 /// Verifier for BLS12-377 + BW6-761 with KZG commitments
-pub type VerifierBls12_377Bw6_761Kzg = Verifier<InnerCurve, OuterCurve, PcsKzgBw6_761>;
+pub type VerifierBls12_377Bw6_761Kzg = Verifier<InnerCurve, OuterCurve, PcsKzgBw6_761, DomainType>;
 
 // ============================================================================
 // Proof Type Aliases

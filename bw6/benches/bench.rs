@@ -160,14 +160,14 @@ fn verification(c: &mut Criterion) {
             .map(|_| InnerCurve::rand(rng))
             .collect();
         
-        let keyset = Keyset::<InnerCurve, OuterCurve>::new(pks);
-        
+        let keyset = Keyset::<InnerCurve, OuterCurve, Radix2EvaluationDomain<Fr>>::new(pks);
+
         let pcs_params = setup::generate_for_keyset::<_, TestPCS, _>(keyset_size, rng);
         let pks_comm = keyset.commit::<TestPCS>(&pcs_params.ck());
 
         let bitmask = Bitmask::from_bits(&vec![true; keyset_size]);
 
-        let prover = Prover::<InnerCurve, OuterCurve, TestPCS>::new(
+        let prover = Prover::<InnerCurve, OuterCurve, TestPCS, Radix2EvaluationDomain<Fr>>::new(
             keyset,
             &pks_comm,
             pcs_params.clone(),
@@ -179,7 +179,7 @@ fn verification(c: &mut Criterion) {
         let proof_counting = prover.prove_counting(bitmask.clone());
 
         let create_verifier = || {
-            Verifier::<InnerCurve, OuterCurve, TestPCS>::new(
+            Verifier::<InnerCurve, OuterCurve, TestPCS, Radix2EvaluationDomain<Fr>>::new(
                 pcs_params.raw_vk(),
                 pks_comm.clone(),
                 Transcript::new(b"apk_proof"),

@@ -13,35 +13,37 @@ use crate::piop::RegisterPolynomials;
 use crate::transcript::ApkTranscript;
 
 
-pub struct Prover<IC, OC, S>
+pub struct Prover<IC, OC, S, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField>,
     S: PCS<OC::ScalarField>,
+    D: EvaluationDomain<OC::ScalarField>,
 {
-    domains: Domains<OC::ScalarField>,
-    keyset: Keyset<IC, OC>,
+    domains: Domains<OC::ScalarField, D>,
+    keyset: Keyset<IC, OC, D>,
     committer_key: S::CK,
     preprocessed_transcript: Transcript,
 }
 
-impl<IC, OC, S> Prover<IC, OC, S> 
+impl<IC, OC, S, D> Prover<IC, OC, S, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField>,
     S: PCS<OC::ScalarField>,
-    S::C: CommitmentExt<OC::ScalarField, Affine = OC::Affine>
+    S::C: CommitmentExt<OC::ScalarField, Affine = OC::Affine>,
+    D: EvaluationDomain<OC::ScalarField>,
 {
     pub fn new(
-        mut keyset: Keyset<IC, OC>,
+        mut keyset: Keyset<IC, OC, D>,
         keyset_comm: &KeysetCommitment<OC::ScalarField, S::C>,
         // prover needs both KZG pk and vk, as it commits to the latter to bind the srs
         pcs_params: S::Params,
         mut empty_transcript: Transcript,
     ) -> Self {
-        let domains = Domains::new(keyset.domain.size());
+        let domains = Domains::<_, D>::new(keyset.domain.size());
 
         // assert!(kzg_params.fits(keyset.domain.size())); // SRS contains enough elements
         <Transcript as ApkTranscript<OC::ScalarField>>::set_protocol_params(&mut empty_transcript, &keyset.domain, &pcs_params.raw_vk());
@@ -60,7 +62,7 @@ where
     pub fn prove_simple(&self, bitmask: Bitmask) -> (
         SimpleProof<OC::ScalarField, OC::Affine, S::C, S::Proof>,
         AccountablePublicInput<IC>) {
-        self.prove::<BasicRegisterBuilder<OC::ScalarField>>(bitmask)
+        self.prove::<BasicRegisterBuilder<OC::ScalarField, D>>(bitmask)
     }
 
     pub fn prove_packed(
@@ -70,7 +72,7 @@ where
         PackedProof<OC::ScalarField, OC::Affine, S::C, S::Proof>,
         AccountablePublicInput<IC>
     ) {
-        self.prove::<PackedRegisterBuilder<OC::ScalarField>>(bitmask)
+        self.prove::<PackedRegisterBuilder<OC::ScalarField, D>>(bitmask)
     }
 
 
@@ -81,7 +83,7 @@ where
         CountingProof<OC::ScalarField, OC::Affine, S::C, S::Proof>,
         CountingPublicInput<IC>
     ) {
-        self.prove::<CountingScheme<OC::ScalarField>>(bitmask)
+        self.prove::<CountingScheme<OC::ScalarField, D>>(bitmask)
     }
 
 
@@ -97,7 +99,7 @@ where
         P::PI
     )
     where
-        P: ProverProtocol<IC, OC, S>,
+        P: ProverProtocol<IC, OC, S, D>,
     {
         assert_eq!(bitmask.size(), self.keyset.size());
         assert!(bitmask.count_ones() > 0); // as EC identity doesn't have and affine representation
@@ -141,7 +143,7 @@ where
         let zeta = <Transcript as ApkTranscript<OC::ScalarField>>::get_evaluation_point(&mut transcript);
         let register_evaluations = protocol.evaluate_register_polynomials(zeta);
         let q_zeta = q_poly.evaluate(&zeta);
-        let zeta_omega = zeta * self.keyset.domain.group_gen;
+        let zeta_omega = zeta * self.keyset.domain.group_gen();
         let r_poly = protocol.compute_linearization_polynomial(phi, zeta);
         let r_zeta_omega = r_poly.evaluate(&zeta_omega);
          <Transcript as ApkTranscript<OC::ScalarField>>::append_evaluations(&mut transcript, &register_evaluations, &q_zeta, &r_zeta_omega);

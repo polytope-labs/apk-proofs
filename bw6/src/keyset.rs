@@ -1,7 +1,7 @@
 use ark_ec::CurveGroup;
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
-use ark_poly::{EvaluationDomain, Evaluations, Radix2EvaluationDomain};
+use ark_poly::{EvaluationDomain, Evaluations};
 use ark_poly::univariate::DensePolynomial;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use w3f_pcs::pcs::Commitment;
@@ -47,36 +47,36 @@ where
     _m: PhantomData<F>,
 }
 
-type EvaluationsX4<Field> = Evaluations<Field, Radix2EvaluationDomain<Field>>;
-
 #[derive(Clone)]
-pub struct Keyset<IC, OC>
+pub struct Keyset<IC, OC, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField>,
+    D: EvaluationDomain<OC::ScalarField>,
 {
     // Actual public keys, no padding.
     pub pks: Vec<IC>,
     // Interpolations of the coordinate vectors of the public key vector WITH padding.
     pub pks_polys: [DensePolynomial<OC::ScalarField>; 2],
     // Domain used to compute the interpolations above.
-    pub domain: Radix2EvaluationDomain<OC::ScalarField>,
+    pub domain: D,
     // Polynomials above, evaluated over a 4-times larger domain.
     // Used by the prover to populate the AIR execution trace.
-    pub pks_evals_x4: Option<[EvaluationsX4<OC::ScalarField>; 2]>,
+    pub pks_evals_x4: Option<[Evaluations<OC::ScalarField, D>; 2]>,
 }
 
-impl<IC, OC> Keyset<IC, OC>
+impl<IC, OC, D> Keyset<IC, OC, D>
 where
     IC: CurveGroup,
     OC: CurveGroup,
     OC::ScalarField: From<IC::BaseField>,
+    D: EvaluationDomain<OC::ScalarField>,
 {
     pub fn new(pks: Vec<IC>) -> Self {
         let min_domain_size = pks.len() + 1; // extra 1 accounts apk accumulator initial value
-        let domain: Radix2EvaluationDomain<OC::ScalarField> =
-            Radix2EvaluationDomain::<OC::ScalarField>::new(min_domain_size)
+        let domain: D =
+            D::new(min_domain_size)
                 .expect("Failed to create evaluation domain");
 
         let mut padded_pks = pks.clone();
@@ -110,7 +110,7 @@ where
     }
 
     pub fn amplify(&mut self) {
-        let domains = Domains::new(self.domain.size());
+        let domains = Domains::<_, D>::new(self.domain.size());
         let pks_evals_x4 = self
             .pks_polys
             .clone()
@@ -130,7 +130,7 @@ where
         let pks_y_comm = S::commit(kzg_pk, &self.pks_polys[1]).expect("Commitment to pks_y_poly failed");
         KeysetCommitment {
             pks_comm: (pks_x_comm, pks_y_comm),
-            log_domain_size: self.domain.log_size_of_group,
+            log_domain_size: self.domain.log_size_of_group() as u32,
             _m: PhantomData::default(),
         }
     }
