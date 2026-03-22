@@ -100,7 +100,7 @@ fn amplification(c: &mut Criterion) {
 
     for log_domain_size in log_domain_size_range {
         let n = 2u32.pow(log_domain_size) as usize;
-        let domains = Domains::new(n);
+        let domains = Domains::<Fr, Radix2EvaluationDomain<Fr>>::new(n);
 
         let evals = (0..n).map(|_| Fr::rand(rng)).collect::<Vec<_>>();
 

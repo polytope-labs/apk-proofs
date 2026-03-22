@@ -1,7 +1,7 @@
-//! KZG polynomial commitment scheme for BLS12-377 + BW6-761
+//! KZG polynomial commitment scheme for BLS12-381 + BW6-767
 //!
 //! This module provides type aliases for APK proofs using KZG (Kate-Zaverucha-Goldberg)
-//! polynomial commitments on the BW6-761 curve.
+//! polynomial commitments on the BW6-767 curve.
 //!
 //! ## Features
 //!
@@ -24,23 +24,23 @@ use crate::{CountingProof, KeysetCommitment, PackedProof, Prover, SimpleProof, V
 /// KZG polynomial commitment scheme on BW6-767
 pub type Pcs = KZG<BW6_767>;
 
-/// KZG commitment (a single BW6-761 G1 point)
+/// KZG commitment (a single BW6-767 G1 point)
 pub type Commitment = KzgCommitment<BW6_767>;
 
 // ============================================================================
 // Core Types with KZG
 // ============================================================================
 
-/// Keyset commitment using KZG on BW6-761
+/// Keyset commitment using KZG on BW6-767
 /// 
 /// Contains commitments to the two Lagrange-basis polynomials representing
 /// the x and y coordinates of the public keys.
 pub type KeysetCommitment381 = KeysetCommitment<OuterScalar, Commitment>;
 
-/// Prover for BLS12-377 + BW6-761 with KZG commitments
+/// Prover for BLS12-381 + BW6-767 with KZG commitments
 pub type Prover381 = Prover<InnerCurve, OuterCurve, Pcs>;
 
-/// Verifier for BLS12-377 + BW6-761 with KZG commitments
+/// Verifier for BLS12-381 + BW6-767 with KZG commitments
 pub type Verifier381 = Verifier<InnerCurve, OuterCurve, Pcs>;
 
 // ============================================================================

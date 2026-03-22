@@ -1,5 +1,4 @@
-use ark_ec::CurveGroup;
-use ark_ff::{FftField, PrimeField};
+use ark_ff::PrimeField;
 use w3f_pcs::pcs::{PCS, PcsParams, CommitterKey};
 use rand::Rng;
 

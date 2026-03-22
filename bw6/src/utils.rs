@@ -1,7 +1,7 @@
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{batch_inversion, FftField};
 use ark_ff::{Field, Zero};
-use ark_poly::{EvaluationDomain, Polynomial, Radix2EvaluationDomain};
+use ark_poly::{EvaluationDomain, Polynomial};
 
 use crate::Bitmask;
 
@@ -13,38 +13,38 @@ use crate::Bitmask;
 // using n multiplications to accumulate z * w_inv^i and then perform batch inversion.
 // Batch inversion costs 1 inv + 3n muls, and n more muls is required for fi * li(z),
 // resulting in around 1 inv + 5n muls
-pub fn barycentric_eval_at<F: FftField>(z: F, evals: &Vec<F>, domain: Radix2EvaluationDomain<F>) -> F {
+pub fn barycentric_eval_at<F: FftField, D: EvaluationDomain<F>>(z: F, evals: &Vec<F>, domain: D) -> F {
     let n = domain.size();
     assert_eq!(evals.len(), n);
     // let timer_z_n =  std::time::Instant::now();
     let mut z_n = z; // z^n, n=2^d - domain size, so squarings only
-    for _ in 0..domain.log_size_of_group {
+    for _ in 0..domain.log_size_of_group() {
         z_n.square_in_place();
     }
-    // println!("{}μs z^n for log_n={}", timer_z_n.elapsed().as_micros(), domain.log_size_of_group);
+    // println!("{}μs z^n for log_n={}", timer_z_n.elapsed().as_micros(), domain.log_size_of_group());
     z_n -= F::one();
-    z_n *= &domain.size_inv; // (z^n-1)/n
+    z_n *= &domain.size_inv(); // (z^n-1)/n
 
     let mut li_inv = Vec::with_capacity(n);
     let mut acc = z;
     for _ in 0..n {
         li_inv.push(acc - F::one());
-        acc *= domain.group_gen_inv;
+        acc *= domain.group_gen_inv();
     }
     batch_inversion(&mut li_inv);
     let s = evals.iter().zip(li_inv).map(|(fi, li)| li * fi).sum::<F>();
     z_n * s
 }
 
-pub fn barycentric_eval_binary_at<F: FftField>(z: F, evals: &Bitmask, domain: Radix2EvaluationDomain<F>) -> F {
+pub fn barycentric_eval_binary_at<F: FftField, D: EvaluationDomain<F>>(z: F, evals: &Bitmask, domain: D) -> F {
     // let timer_z_n =  std::time::Instant::now();
     let mut z_n = z; // z^n, n=2^d - domain size, so squarings only
-    for _ in 0..domain.log_size_of_group {
+    for _ in 0..domain.log_size_of_group() {
         z_n.square_in_place();
     }
-    // println!("{}μs z^n for log_n={}", timer_z_n.elapsed().as_micros(), domain.log_size_of_group);
+    // println!("{}μs z^n for log_n={}", timer_z_n.elapsed().as_micros(), domain.log_size_of_group());
     z_n -= F::one();
-    z_n *= &domain.size_inv; // (z^n-1)/n
+    z_n *= &domain.size_inv(); // (z^n-1)/n
 
     let mut li_inv = Vec::with_capacity(evals.count_ones());
     let mut acc = z;
@@ -52,7 +52,7 @@ pub fn barycentric_eval_binary_at<F: FftField>(z: F, evals: &Bitmask, domain: Ra
         if b {
             li_inv.push(acc - F::one());
         }
-        acc *= domain.group_gen_inv;
+        acc *= domain.group_gen_inv();
     }
 
     batch_inversion(&mut li_inv);
@@ -70,24 +70,24 @@ pub struct LagrangeEvaluations<F: FftField> {
 }
 
 //TODO: move to domains
-pub fn lagrange_evaluations<F: FftField>(z: F, domain: Radix2EvaluationDomain<F>) -> LagrangeEvaluations<F> {
+pub fn lagrange_evaluations<F: FftField, D: EvaluationDomain<F>>(z: F, domain: D) -> LagrangeEvaluations<F> {
     // TODO: reuse this code with barycentric_eval methods
     let mut z_n = z; // z^n, n=2^d - domain size, so squarings only
-    for _ in 0..domain.log_size_of_group {
+    for _ in 0..domain.log_size_of_group() {
         z_n.square_in_place();
     }
 
     let z_n_minus_one = z_n - F::one();
-    let z_n_minus_one_div_n = z_n_minus_one * domain.size_inv;
+    let z_n_minus_one_div_n = z_n_minus_one * domain.size_inv();
 
-    let mut inv = [z - F::one(), domain.group_gen * z - F::one()];
+    let mut inv = [z - F::one(), domain.group_gen() * z - F::one()];
     batch_inversion(&mut inv);
     LagrangeEvaluations {
         vanishing_polynomial: z_n_minus_one,
         l_first: z_n_minus_one_div_n * inv[0],
         l_last: z_n_minus_one_div_n * inv[1],
-        zeta_minus_omega_inv: z - domain.group_gen_inv,
-        zeta_omega: z * domain.group_gen,
+        zeta_minus_omega_inv: z - domain.group_gen_inv(),
+        zeta_omega: z * domain.group_gen(),
     }
 }
 
@@ -154,7 +154,7 @@ pub fn randomize<P, F>(
 #[cfg(test)]
 mod tests {
     use ark_ff::{Field, One};
-    use ark_poly::{Evaluations, Polynomial};
+    use ark_poly::{Evaluations, Polynomial, Radix2EvaluationDomain};
     use ark_std::{test_rng, UniformRand};
     use ark_std::convert::TryInto;
 
