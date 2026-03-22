@@ -17,7 +17,10 @@ use ark_bls12_377::G1Projective as Bls12_377_G1;
 use ark_bw6_761::{Fq, Fr, G1Affine as BW6_761_G1Affine, G1Projective as BW6_761_G1};
 use ark_ff::MontFp;
 use ark_ec::bls12::Bls12Config;
+use ark_poly::Radix2EvaluationDomain;
 use crate::{AccountablePublicInput, CountingPublicInput, Keyset};
+
+pub type DomainType = Radix2EvaluationDomain<ark_bw6_761::Fr>;
 
 // ============================================================================
 // Polynomial Commitment Schemes
@@ -67,7 +70,7 @@ pub type OuterScalar = Fr;
 /// Keyset for BLS12-377 public keys with BW6-761 operations
 /// 
 /// This type is independent of the polynomial commitment scheme used.
-pub type KeysetBls12_377Bw6_671 = Keyset<InnerCurve, OuterCurve>;
+pub type KeysetBls12_377Bw6_761 = Keyset<InnerCurve, OuterCurve>;
 
 /// Accountable public input for simple and packed proof schemes
 /// 

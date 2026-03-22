@@ -1,8 +1,8 @@
 // use ark_bw6_761::Fr;
 // use ark_ec::pairing::Pairing;
 use ark_ec::{AffineRepr, CurveGroup};
-use ark_ff::{FftField, Field, One, PrimeField, Zero};
-use ark_poly::{Evaluations, Polynomial, Radix2EvaluationDomain};
+use ark_ff::{FftField, Field, PrimeField};
+use ark_poly::{EvaluationDomain, Evaluations, Polynomial};
 use ark_poly::polynomial::univariate::DensePolynomial;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{end_timer, start_timer};
@@ -133,7 +133,7 @@ where
         let acc = self.acc;
         let c = self.c;
 
-        let a6 = BitmaskPackingRegisters::evaluate_inner_product_constraint_linearized(
+        let a6 = BitmaskPackingRegisters::<F>::evaluate_inner_product_constraint_linearized(
             aggregated_bitmask,
             &evals_at_zeta,
             b,
@@ -141,7 +141,7 @@ where
             acc,
         );
 
-        let a7 = BitmaskPackingRegisters::evaluate_multipacking_mask_constraint_linearized(
+        let a7 = BitmaskPackingRegisters::<F>::evaluate_multipacking_mask_constraint_linearized(
             a,
             r_pow_m,
             &evals_at_zeta,
@@ -182,24 +182,24 @@ where
 
 
 
-pub(crate) struct BitmaskPackingRegisters<F: PrimeField> {
-    domains: Domains<F>,
+pub(crate) struct BitmaskPackingRegisters<F: PrimeField, D: EvaluationDomain<F> = ark_poly::Radix2EvaluationDomain<F>> {
+    domains: Domains<F, D>,
 
-    bitmask: Evaluations<F, Radix2EvaluationDomain<F>>,
-    c: Evaluations<F, Radix2EvaluationDomain<F>>,
-    c_shifted: Evaluations<F, Radix2EvaluationDomain<F>>,
-    acc: Evaluations<F, Radix2EvaluationDomain<F>>,
-    acc_shifted: Evaluations<F, Radix2EvaluationDomain<F>>,
+    bitmask: Evaluations<F, D>,
+    c: Evaluations<F, D>,
+    c_shifted: Evaluations<F, D>,
+    acc: Evaluations<F, D>,
+    acc_shifted: Evaluations<F, D>,
 
     bitmask_chunks_aggregated: F,
     polynomials: BitmaskPackingPolynomials<F>,
     r: F,
 }
 
-impl<F: PrimeField> BitmaskPackingRegisters<F> {
+impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
 
     // TODO: remove bitmask arg
-    pub fn new(domains: Domains<F>,
+    pub fn new(domains: Domains<F, D>,
                bitmask: &Bitmask,
                bitmask_chunks_aggregation_challenge: F, // denoted 'r' in the write-ups
     ) -> Self {
@@ -236,7 +236,7 @@ impl<F: PrimeField> BitmaskPackingRegisters<F> {
     }
 
     fn new_unchecked(
-        domains: Domains<F>,
+        domains: Domains<F, D>,
 
         bitmask: Vec<F>,
         c: Vec<F>,
@@ -355,7 +355,7 @@ impl<F: PrimeField> BitmaskPackingRegisters<F> {
 
 
 
-impl<F: PrimeField> BitmaskPackingRegisters<F> {
+impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
     pub fn evaluate_register_polynomials(&self, point: F) -> (F, F) {
         //TODO: struct
         (
@@ -385,8 +385,9 @@ impl<F: PrimeField> BitmaskPackingRegisters<F> {
 #[cfg(test)]
 mod tests {
     use ark_poly::Polynomial;
-    use ark_std::{test_rng, UniformRand};
+    use ark_std::{test_rng, One, UniformRand};
     use ark_bw6_761::Fr;
+    use ark_poly::Radix2EvaluationDomain;
 
     use crate::domains::Domains;
     use crate::test_helpers::_random_bits;
@@ -415,7 +416,7 @@ mod tests {
         let rng = &mut test_rng();
         let n = 256;
         let m = n - 1;
-        let domains = Domains::new(n);
+        let domains = Domains::<Fr, Radix2EvaluationDomain<Fr>>::new(n);
 
         let bitmask = Bitmask::from_bits(&_random_bits(m, 0.5, rng));
 

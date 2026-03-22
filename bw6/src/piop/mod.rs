@@ -1,6 +1,6 @@
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{Field, Zero};
-use ark_poly::Radix2EvaluationDomain;
+use ark_poly::EvaluationDomain;
 use ark_poly::univariate::DensePolynomial;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use w3f_pcs::pcs::PCS;
@@ -125,7 +125,7 @@ where
     fn compute_constraint_polynomials(&self) -> Vec<DensePolynomial<OC::ScalarField>>;
 
     //TODO: remove domains param
-    fn compute_quotient_polynomial(&self, phi: OC::ScalarField, domain: Radix2EvaluationDomain<OC::ScalarField>) -> DensePolynomial<OC::ScalarField> {
+    fn compute_quotient_polynomial<D: EvaluationDomain<OC::ScalarField>>(&self, phi: OC::ScalarField, domain: D) -> DensePolynomial<OC::ScalarField> {
         let w = utils::randomize(phi, &self.compute_constraint_polynomials());
         let (q_poly, r) = w.divide_by_vanishing_poly(domain);
         assert_eq!(r, DensePolynomial::zero());

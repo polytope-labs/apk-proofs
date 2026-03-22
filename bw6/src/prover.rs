@@ -1,4 +1,4 @@
-use ark_ec::{CurveGroup, pairing::Pairing};
+use ark_ec::CurveGroup;
 use ark_poly::{EvaluationDomain, Polynomial};
 use w3f_pcs::pcs::{PCS, PcsParams};
 use merlin::Transcript;

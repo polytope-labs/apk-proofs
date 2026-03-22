@@ -1,6 +1,6 @@
 use ark_ec::CurveGroup;
-use ark_ff::{Field, PrimeField};
-use ark_poly::Radix2EvaluationDomain;
+use ark_ff::PrimeField;
+use ark_poly::EvaluationDomain;
 use ark_serialize::CanonicalSerialize;
 use w3f_pcs::pcs::{Commitment, RawVerifierKey};
 use merlin::Transcript;
@@ -10,7 +10,7 @@ use crate::piop::{RegisterCommitments, RegisterEvaluations};
 
 pub(crate) trait ApkTranscript<F: PrimeField> {
 
-    fn set_protocol_params<VK: RawVerifierKey>(&mut self, domain: &Radix2EvaluationDomain<F>, kzg_vk: &VK) {
+    fn set_protocol_params<D: EvaluationDomain<F> + CanonicalSerialize, VK: RawVerifierKey>(&mut self, domain: &D, kzg_vk: &VK) {
         self._append_serializable(b"domain", domain);
         self._append_serializable(b"vk", kzg_vk);
     }

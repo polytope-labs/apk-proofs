@@ -1,5 +1,5 @@
 // use ark_bw6_761::Fr;
-use ark_ff::{FftField, Field, One, PrimeField, Zero};
+use ark_ff::{FftField, Field, PrimeField, Zero};
 use ark_poly::{Evaluations, Polynomial};
 use ark_poly::univariate::DensePolynomial;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};

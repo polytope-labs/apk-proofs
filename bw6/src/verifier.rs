@@ -1,5 +1,5 @@
 use ark_ec::CurveGroup;
-use ark_ff::{FftField, One, UniformRand};
+use ark_ff::FftField;
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_std::{end_timer, start_timer};
 use w3f_pcs::aggregation::single::aggregate_claims_multiexp;

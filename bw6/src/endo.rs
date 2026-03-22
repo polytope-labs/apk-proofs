@@ -105,3 +105,52 @@ mod tests {
         assert!(!subgroup_check::<Config>(&point_not_in_g1.into_group(), OMEGA, U));
     }
 }
+
+#[cfg(test)]
+mod tests_bw6_767 {
+    use ark_bw6_767::{Config, G1Affine};
+    use ark_ec::CurveGroup;
+    use ark_ff::{Field, One};
+    use ark_std::{test_rng, UniformRand};
+    use crate::instances::bls12_381_bw6_767::{OMEGA, LAMBDA};
+
+    use super::*;
+
+    fn glv_endomorphism_767(p: &G1Affine) -> G1Affine {
+        let mut p = p.clone();
+        p.x *= &OMEGA;
+        p
+    }
+
+    #[test]
+    pub fn test_omega_767() {
+        assert!(OMEGA.pow([3]).is_one());
+    }
+
+    #[test]
+    pub fn test_lambda_767() {
+        assert!(LAMBDA.pow([3]).is_one());
+    }
+
+    #[test]
+    pub fn test_endo_767() {
+        let rng = &mut test_rng();
+
+        let p1 = ark_bw6_767::G1Projective::rand(rng).into_affine();
+        let mut p2 = p1.clone();
+
+        assert_eq!(glv_endomorphism_767(&p1), p1 * LAMBDA);
+        p2.x *= &OMEGA;
+        assert_eq!(p2, p1 * LAMBDA);
+    }
+
+    #[test]
+    pub fn test_endo_proj_767() {
+        let rng = &mut test_rng();
+
+        let p = ark_bw6_767::G1Projective::rand(rng);
+
+        assert_eq!(glv_endomorphism_proj::<Config>(&p, OMEGA), p * LAMBDA);
+    }
+
+}

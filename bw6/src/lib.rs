@@ -34,6 +34,7 @@ pub mod domains;
 mod piop;
 
 pub mod setup;
+pub mod smooth_domain;
 mod bitmask;
 mod keyset;
 pub mod test_helpers;
