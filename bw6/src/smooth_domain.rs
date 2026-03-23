@@ -158,7 +158,7 @@ impl SmoothDomainConfig for ark_bw6_767::Fr {
 // ============================================================================
 
 /// Naive DFT for small sizes. O(n²).
-fn dft_naive<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
+fn dft_naive<F: PrimeField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
     let n = vals.len();
     let input = vals.to_vec();
     for k in 0..n {
@@ -175,9 +175,16 @@ fn dft_naive<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
     }
 }
 
+/// Threshold above which Rader's uses FFT-based convolution instead of naive.
+/// For primes below this, naive O(p²) is fast enough.
+const RADER_FFT_THRESHOLD: usize = 64;
+
 /// Rader's algorithm: prime-p DFT → (p-1)-point cyclic convolution.
-/// Uses naive convolution since p is small (≤ ~100).
-fn rader_fft<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
+///
+/// For small primes (p < RADER_FFT_THRESHOLD), uses naive O(p²) convolution.
+/// For large primes, uses FFT-based O(p log p) convolution via zero-padded
+/// linear convolution with circular wrap-around.
+fn rader_fft<F: PrimeField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
     let p = vals.len();
     assert!(p >= 3 && is_prime(p as u64));
 
@@ -208,30 +215,13 @@ fn rader_fft<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
     // Kernel: b[i] = omega^{g^i}
     let b: Vec<F> = (0..(p - 1)).map(|i| omega.pow([g_pow[i] as u64])).collect();
 
-    // Cyclic convolution: c[j] = sum_i a[i] * b[(j-i) mod (p-1)]
     let conv_len = p - 1;
 
-    #[cfg(feature = "parallel")]
-    let c: Vec<T> = (0..conv_len).into_par_iter().map(|j| {
-        let mut sum = T::zero();
-        for i in 0..conv_len {
-            let mut term = a[i];
-            term *= b[(j + conv_len - i) % conv_len];
-            sum = sum + term;
-        }
-        sum
-    }).collect();
-
-    #[cfg(not(feature = "parallel"))]
-    let c: Vec<T> = (0..conv_len).map(|j| {
-        let mut sum = T::zero();
-        for i in 0..conv_len {
-            let mut term = a[i];
-            term *= b[(j + conv_len - i) % conv_len];
-            sum = sum + term;
-        }
-        sum
-    }).collect();
+    let c = if p >= RADER_FFT_THRESHOLD {
+        circular_conv_fft(&a, &b, conv_len)
+    } else {
+        circular_conv_naive(&a, &b, conv_len)
+    };
 
     let x_zero = vals[0];
     vals[0] = x0;
@@ -240,8 +230,179 @@ fn rader_fft<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
     }
 }
 
+/// Naive O(n²) cyclic convolution: c[j] = Σ_i a[i] * b[(j-i) mod n].
+fn circular_conv_naive<F: FftField, T: DomainCoeff<F>>(
+    a: &[T], b: &[F], n: usize,
+) -> Vec<T> {
+    #[cfg(feature = "parallel")]
+    let c: Vec<T> = (0..n).into_par_iter().map(|j| {
+        let mut sum = T::zero();
+        for i in 0..n {
+            let mut term = a[i];
+            term *= b[(j + n - i) % n];
+            sum = sum + term;
+        }
+        sum
+    }).collect();
+
+    #[cfg(not(feature = "parallel"))]
+    let c: Vec<T> = (0..n).map(|j| {
+        let mut sum = T::zero();
+        for i in 0..n {
+            let mut term = a[i];
+            term *= b[(j + n - i) % n];
+            sum = sum + term;
+        }
+        sum
+    }).collect();
+
+    c
+}
+
+/// FFT-based O(n log n) cyclic convolution via linear convolution + wrap.
+///
+/// Computes c[j] = Σ_i a[i] * b[(j-i) mod n] by:
+/// 1. Zero-padding a and b to length N >= 2n-1 (a smooth number dividing |F*|)
+/// 2. FFT both, pointwise multiply, IFFT
+/// 3. Wrapping the linear convolution result back to length n
+///
+/// The FFT size N must NOT contain any prime factor >= RADER_FFT_THRESHOLD
+/// to avoid infinite recursion (Rader's calling itself for the same large prime).
+fn circular_conv_fft<F: PrimeField, T: DomainCoeff<F>>(
+    a: &[T], b: &[F], n: usize,
+) -> Vec<T> {
+    let min_fft_size = 2 * n - 1;
+
+    // Find a suitable FFT size: a smooth number >= min_fft_size whose prime factors
+    // are all small (< RADER_FFT_THRESHOLD), so the recursive FFT won't hit Rader's
+    // for a large prime. We enumerate divisors of |F*| that are products of small primes.
+    let fft_size = find_small_smooth_size::<F>(min_fft_size)
+        .expect("no suitable FFT size for Rader's convolution");
+
+    // Find a primitive fft_size-th root of unity
+    let conv_omega = find_root_of_unity_generic::<F>(fft_size as u64)
+        .expect("no root of unity for convolution FFT size");
+    let conv_omega_inv = conv_omega.inverse().unwrap();
+    let fft_size_inv = F::from(fft_size as u64).inverse().unwrap();
+
+    // Factorize for Good-Thomas
+    let factors_vec = trial_factor(fft_size as u64);
+    let coprime_factors: Vec<u64> = factors_vec.iter()
+        .map(|&(p, e)| (0..e).fold(1u64, |acc, _| acc * p))
+        .collect();
+
+    // Zero-pad a and b to fft_size
+    let mut a_padded = vec![T::zero(); fft_size];
+    for i in 0..n { a_padded[i] = a[i]; }
+
+    let mut b_padded = vec![F::zero(); fft_size];
+    for i in 0..n { b_padded[i] = b[i]; }
+
+    // Forward FFT both sequences
+    good_thomas_fft(&mut a_padded, conv_omega, &coprime_factors);
+    good_thomas_fft(&mut b_padded, conv_omega, &coprime_factors);
+
+    // Pointwise multiply: a_padded[i] *= b_padded[i]
+    #[cfg(feature = "parallel")]
+    a_padded.par_iter_mut().zip(b_padded.par_iter()).for_each(|(ai, bi)| {
+        *ai *= *bi;
+    });
+
+    #[cfg(not(feature = "parallel"))]
+    for i in 0..fft_size {
+        a_padded[i] *= b_padded[i];
+    }
+
+    // Inverse FFT
+    good_thomas_fft(&mut a_padded, conv_omega_inv, &coprime_factors);
+    for v in a_padded.iter_mut() { *v *= fft_size_inv; }
+
+    // Wrap linear convolution → circular convolution of length n
+    let mut c = Vec::with_capacity(n);
+    for j in 0..n {
+        c.push(a_padded[j]);
+    }
+    for j in n..fft_size {
+        c[j % n] = c[j % n] + a_padded[j];
+    }
+
+    c
+}
+
+/// Find an N-th root of unity in F by computing g^((p-1)/N) for small generator candidates.
+fn find_root_of_unity_generic<F: PrimeField>(n: u64) -> Option<F> {
+    use ark_ff::BigInteger;
+    let mut p_minus_1 = F::MODULUS;
+    p_minus_1.sub_with_borrow(&F::BigInt::from(1u64));
+    let (quotient, remainder) = div_with_remainder::<F::BigInt>(&p_minus_1, n);
+    if remainder != 0 { return None; }
+
+    let factors = trial_factor(n);
+    for base in 2u64..100 {
+        let candidate = F::from(base).pow(quotient);
+        if candidate.is_zero() || candidate.is_one() { continue; }
+        let mut is_primitive = true;
+        for &(q, _) in &factors {
+            if candidate.pow([n / q]).is_one() { is_primitive = false; break; }
+        }
+        if is_primitive { return Some(candidate); }
+    }
+    None
+}
+
+/// Find the smallest smooth number >= min_size whose prime factors are all < RADER_FFT_THRESHOLD,
+/// and which divides |F*| (so roots of unity exist).
+///
+/// We enumerate products of small-prime-power divisors of (p-1).
+fn find_small_smooth_size<F: PrimeField>(min_size: usize) -> Option<usize> {
+    use ark_ff::BigInteger;
+    let mut p_minus_1 = F::MODULUS;
+    p_minus_1.sub_with_borrow(&F::BigInt::from(1u64));
+
+    // Extract all small prime factors from p-1
+    let small_factors = extract_small_factors::<F>(RADER_FFT_THRESHOLD as u64);
+    if small_factors.is_empty() { return None; }
+
+    // Generate all divisors of the small-smooth part
+    let mut divisors = vec![1usize];
+    for &(p, e) in &small_factors {
+        let len = divisors.len();
+        let mut pe = 1usize;
+        for _ in 0..e {
+            pe *= p as usize;
+            for j in 0..len {
+                divisors.push(divisors[j] * pe);
+            }
+        }
+    }
+    divisors.sort();
+    divisors.into_iter().find(|&d| d >= min_size)
+}
+
+/// Extract prime factors of (p-1) that are less than `bound`, with their full multiplicity.
+fn extract_small_factors<F: PrimeField>(bound: u64) -> Vec<(u64, u32)> {
+    use ark_ff::BigInteger;
+    let mut p_minus_1 = F::MODULUS;
+    p_minus_1.sub_with_borrow(&F::BigInt::from(1u64));
+
+    let mut factors = Vec::new();
+    let mut d = 2u64;
+    while d < bound {
+        let mut e = 0u32;
+        loop {
+            let (q, r) = div_with_remainder::<F::BigInt>(&p_minus_1, d);
+            if r != 0 { break; }
+            p_minus_1 = q;
+            e += 1;
+        }
+        if e > 0 { factors.push((d, e)); }
+        d += 1;
+    }
+    factors
+}
+
 /// Dispatch to Rader's, butterfly, or naive DFT based on factor size.
-fn small_fft<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
+fn small_fft<F: PrimeField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
     let n = vals.len();
     if n <= 1 { return; }
     if n == 2 {
@@ -263,7 +424,7 @@ fn small_fft<F: FftField, T: DomainCoeff<F>>(vals: &mut [T], omega: F) {
 ///
 /// Uses Input CRT + Output Ruritanian index mappings, which eliminates twiddle factors.
 /// Recursively decomposes into sub-FFTs for each coprime factor.
-pub fn good_thomas_fft<F: FftField, T: DomainCoeff<F>>(
+pub fn good_thomas_fft<F: PrimeField, T: DomainCoeff<F>>(
     vals: &mut [T],
     omega: F,
     coprime_factors: &[u64],
@@ -338,7 +499,7 @@ pub fn good_thomas_fft<F: FftField, T: DomainCoeff<F>>(
 /// Works for any factorization. Uses twiddle factors between stages.
 /// For multi-level decomposition, uses the naive DFT as the base case
 /// to avoid mixed-radix digit-reversal complications.
-pub fn cooley_tukey_fft<F: FftField, T: DomainCoeff<F>>(
+pub fn cooley_tukey_fft<F: PrimeField, T: DomainCoeff<F>>(
     vals: &mut [T],
     omega: F,
     factors: &[u64],
@@ -623,7 +784,7 @@ impl<F: SmoothDomainConfig + FftField> EvaluationDomain<F> for SmoothSubgroupDom
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::{Field, UniformRand, One};
+    use ark_ff::{Field, UniformRand, One, Zero};
     use ark_poly::DenseUVPolynomial;
     use ark_poly::polynomial::univariate::DensePolynomial;
     use ark_std::test_rng;
@@ -773,6 +934,69 @@ mod tests {
             let direct = poly.evaluate(&point);
             assert_eq!(eval, direct, "eval mismatch at domain point {}", i);
             point *= omega;
+        }
+    }
+
+    #[test]
+    fn test_rader_fft_10177_roundtrip() {
+        let rng = &mut test_rng();
+        let p = 10177usize;
+        assert!(is_prime(p as u64));
+        let omega = SmoothSubgroupDomain::<Bw6767Fr>::find_root_of_unity(p as u64).unwrap();
+        let original: Vec<Bw6767Fr> = (0..p).map(|_| Bw6767Fr::rand(rng)).collect();
+        let mut vals = original.clone();
+        rader_fft(&mut vals, omega);
+        rader_fft(&mut vals, omega.inverse().unwrap());
+        let p_inv = Bw6767Fr::from(p as u64).inverse().unwrap();
+        for v in vals.iter_mut() { *v *= p_inv; }
+        assert_eq!(original, vals, "Rader FFT roundtrip failed for p=10177");
+    }
+
+    #[test]
+    fn test_rader_fft_10177_matches_naive() {
+        // Compare FFT-based Rader's (p=10177) against naive DFT on a small subset
+        let rng = &mut test_rng();
+        let p = 10177usize;
+        let omega = SmoothSubgroupDomain::<Bw6767Fr>::find_root_of_unity(p as u64).unwrap();
+        let original: Vec<Bw6767Fr> = (0..p).map(|_| Bw6767Fr::rand(rng)).collect();
+        let mut rader_result = original.clone();
+        rader_fft(&mut rader_result, omega);
+
+        // Spot-check a few output indices against direct computation
+        for &k in &[0, 1, 2, 100, 5000, 10176] {
+            let omega_k = omega.pow([k as u64]);
+            let mut expected = Bw6767Fr::zero();
+            let mut omega_ki = Bw6767Fr::one();
+            for i in 0..p {
+                expected += original[i] * omega_ki;
+                omega_ki *= omega_k;
+            }
+            assert_eq!(rader_result[k], expected, "Rader mismatch at index {}", k);
+        }
+    }
+
+    #[test]
+    fn test_circular_conv_fft_matches_naive() {
+        let rng = &mut test_rng();
+        let n = 46usize; // p=47, conv_len=46
+        let a: Vec<Bw6767Fr> = (0..n).map(|_| Bw6767Fr::rand(rng)).collect();
+        let b: Vec<Bw6767Fr> = (0..n).map(|_| Bw6767Fr::rand(rng)).collect();
+        let naive = circular_conv_naive(&a, &b, n);
+        let fast = circular_conv_fft(&a, &b, n);
+        assert_eq!(naive, fast, "FFT convolution doesn't match naive");
+    }
+
+    #[test]
+    fn test_find_small_smooth_size() {
+        // For BW6-767, the small-smooth part (primes < 64) of p-1 includes
+        // 2, 3², 11, 23, 47. Max product = 2 × 9 × 11 × 23 × 47 = 214038.
+        // For Rader's with p=10177: need >= 2*10176-1 = 20351
+        let size = find_small_smooth_size::<Bw6767Fr>(20351).unwrap();
+        assert!(size >= 20351);
+        // All prime factors should be < RADER_FFT_THRESHOLD
+        for (p, _) in trial_factor(size as u64) {
+            assert!(p < RADER_FFT_THRESHOLD as u64,
+                "FFT size {} has large prime factor {}", size, p);
         }
     }
 
