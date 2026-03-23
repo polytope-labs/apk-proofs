@@ -63,14 +63,38 @@ impl Bitmask {
         self.limbs.iter().map(|limb| usize::try_from(limb.count_ones()).unwrap()).sum()
     }
 
-    /// Splits the bits into chunks of the specified size and converts the chunks into field elements,
-    /// interpreting the lowest bit of the chunk as the least significant (~little-endian).
-    /// Panics if the chunk doesn't have the unique representation in the field (chunk size exceeds the field capacity).
+    /// Splits the bits into chunks of the specified size (in u64 limbs) and converts the chunks
+    /// into field elements. Panics if the chunk exceeds the field capacity.
     pub fn to_chunks_as_field_elements<F: PrimeField>(&self, limbs_in_chunk: usize) -> Vec<F> {
         let bits_in_chunk = BITS_IN_LIMB * limbs_in_chunk;
         let capacity = (F::MODULUS_BIT_SIZE - 1).try_into().unwrap();
         assert!(bits_in_chunk <= capacity);
         self.limbs.chunks(limbs_in_chunk).map(limbs_to_field_elements::<F>).collect()
+    }
+
+    /// Splits the bits into chunks of `bits_per_chunk` bits and converts each chunk into a field
+    /// element, interpreting the lowest bit as least significant (little-endian).
+    /// Works for any chunk size (not just multiples of 64).
+    pub fn to_chunks_by_bits<F: PrimeField>(&self, bits_per_chunk: usize) -> Vec<F> {
+        let capacity: usize = (F::MODULUS_BIT_SIZE - 1).try_into().unwrap();
+        assert!(bits_per_chunk <= capacity);
+        let bits = self.to_bits();
+        bits.chunks(bits_per_chunk)
+            .map(|chunk| {
+                let mut repr = F::BigInt::default();
+                let limbs = repr.as_mut();
+                for (i, &bit) in chunk.iter().enumerate() {
+                    if bit {
+                        let limb_idx = i / BITS_IN_LIMB;
+                        let bit_idx = i % BITS_IN_LIMB;
+                        if limb_idx < limbs.len() {
+                            limbs[limb_idx] |= 1u64 << bit_idx;
+                        }
+                    }
+                }
+                F::from_bigint(repr).unwrap()
+            })
+            .collect()
     }
 }
 
