@@ -14,6 +14,27 @@ use crate::piop::{RegisterCommitments, RegisterEvaluations, RegisterPolynomials,
 use crate::piop::affine_addition::{AffineAdditionEvaluations, PartialSumsAndBitmaskCommitments};
 use crate::utils::LagrangeEvaluations;
 
+/// Compute the optimal bitmask packing block size for a given domain.
+/// Returns the largest divisor of `domain_size` that fits in `field_bit_capacity` bits
+/// (i.e., 2^block < field modulus).
+pub fn compute_block_size(domain_size: usize, field_bit_capacity: usize) -> usize {
+    let mut best = 1usize;
+    let mut d = 1usize;
+    while d * d <= domain_size {
+        if domain_size % d == 0 {
+            if d <= field_bit_capacity {
+                best = best.max(d);
+            }
+            let other = domain_size / d;
+            if other <= field_bit_capacity {
+                best = best.max(other);
+            }
+        }
+        d += 1;
+    }
+    best
+}
+
 #[derive(CanonicalSerialize, CanonicalDeserialize, Clone)]
 pub struct BitmaskPackingCommitments<G: AffineRepr> {
     pub c_comm: G,
@@ -86,25 +107,22 @@ impl<F: PrimeField> SuccinctAccountableRegisterEvaluations<F> {
         r: F,
         bitmask: &Bitmask,
         domain_size: u64,
-    ) -> Vec<F> 
+    ) -> Vec<F>
 where
         IC: CurveGroup,
         OC: CurveGroup<ScalarField = F>,
-        OC::ScalarField: From<IC::BaseField>,     
+        OC::ScalarField: From<IC::BaseField>,
 {
-        let bits_in_bitmask_chunk = 256;
-        let bits_in_big_int_limb = 64;
-        assert_eq!(bits_in_bitmask_chunk % bits_in_big_int_limb, 0);
-        let limbs_in_chunk = bits_in_bitmask_chunk / bits_in_big_int_limb;
+        let field_bit_capacity = (F::MODULUS_BIT_SIZE - 1) as usize;
+        let bits_in_bitmask_chunk = compute_block_size(domain_size as usize, field_bit_capacity) as u64;
         assert_eq!(domain_size % bits_in_bitmask_chunk, 0);
-        let chunks_in_bitmask = domain_size / bits_in_bitmask_chunk; // TODO: bitmask should be right-padded with 0s to domain_size
+        let chunks_in_bitmask = domain_size / bits_in_bitmask_chunk;
 
-        let bits_in_bitmask_chunk_inv = F::from(256u16).inverse().unwrap();
+        let bits_in_bitmask_chunk_inv = F::from(bits_in_bitmask_chunk).inverse().unwrap();
 
         let powers_of_r = utils::powers(r, (chunks_in_bitmask - 1) as usize);
         let r_pow_m = r * powers_of_r.last().unwrap();
-        let mut bitmask_chunks = bitmask.to_chunks_as_field_elements::<F>(limbs_in_chunk as usize);
-        //TODO: pad in Bitmask
+        let mut bitmask_chunks = bitmask.to_chunks_by_bits::<F>(bits_in_bitmask_chunk as usize);
         bitmask_chunks.resize_with(chunks_in_bitmask as usize, || F::zero());
         assert_eq!(powers_of_r.len(), bitmask_chunks.len());
         let aggregated_bitmask = bitmask_chunks.into_iter()
@@ -126,7 +144,7 @@ where
 
         assert_eq!(a_zeta_omega1, a_zeta_omega2);
         let two = F::from(2u8);
-        let a = two + (r / two.pow([255u64]) - two) * a_zeta_omega1;
+        let a = two + (r / two.pow([(bits_in_bitmask_chunk - 1) as u64]) - two) * a_zeta_omega1;
 
 
         let b = self.basic_evaluations.bitmask;
@@ -194,6 +212,7 @@ pub(crate) struct BitmaskPackingRegisters<F: PrimeField, D: EvaluationDomain<F> 
     bitmask_chunks_aggregated: F,
     polynomials: BitmaskPackingPolynomials<F>,
     r: F,
+    block_size: usize,
 }
 
 impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
@@ -204,8 +223,10 @@ impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
                bitmask_chunks_aggregation_challenge: F, // denoted 'r' in the write-ups
     ) -> Self {
         let n = domains.size;
-        let bits_in_bitmask_chunk = 256;  //256 is the highest power of 2 that fits field bit capacity //TODO: const
-        assert_eq!(n % bits_in_bitmask_chunk, 0); // n is a power of 2
+        let field_bit_capacity = (F::MODULUS_BIT_SIZE - 1) as usize;
+        let bits_in_bitmask_chunk = compute_block_size(n, field_bit_capacity);
+        assert!(bits_in_bitmask_chunk > 1, "domain size must have a divisor > 1 that fits in the field");
+        assert_eq!(n % bits_in_bitmask_chunk, 0);
 
         let mut bitmask = bitmask.to_bits_as_field_elements();
         bitmask.resize(domains.size, F::zero());
@@ -231,7 +252,8 @@ impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
             acc,
             acc_shifted,
             bitmask_chunks_aggregated,
-            r
+            r,
+            bits_in_bitmask_chunk,
         )
     }
 
@@ -244,7 +266,8 @@ impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
         acc: Vec<F>,
         acc_shifted: Vec<F>,
         bitmask_chunks_aggregated: F,
-        r: F
+        r: F,
+        block_size: usize,
     ) -> Self {
         let c_polynomial = domains.interpolate(c);
         let acc_polynomial = domains.interpolate(acc);
@@ -261,7 +284,8 @@ impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
                 c_poly: c_polynomial,
                 acc_poly: acc_polynomial,
             },
-            r
+            r,
+            block_size,
         }
     }
 
@@ -320,14 +344,15 @@ impl<F: PrimeField, D: EvaluationDomain<F>> BitmaskPackingRegisters<F, D> {
 
     pub fn compute_multipacking_mask_constraint_polynomial(&self) -> DensePolynomial<F> {
         let n = self.domains.size;
-        let chunks = n / 256; //TODO: consts
+        let block = self.block_size;
+        let chunks = n / block;
         let mut a = vec![F::from(2u8); n];
-        a.iter_mut().step_by(256).for_each(|a| *a = self.r / F::from(2u8).pow([255u64]));
+        a.iter_mut().step_by(block).for_each(|a| *a = self.r / F::from(2u8).pow([(block - 1) as u64]));
         a.rotate_left(1);
         let a_x4 = self.domains.amplify(a);
 
-        let x_todo = F::one() - self.r.pow([chunks as u64]); //TODO: name
-        let ln_x4 = self.domains.l_last_scaled_by(x_todo);
+        let correction = F::one() - self.r.pow([chunks as u64]);
+        let ln_x4 = self.domains.l_last_scaled_by(correction);
 
         let a7 = &(&self.c_shifted - &(&self.c * &a_x4)) - &ln_x4;
         a7.interpolate()
